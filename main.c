@@ -31,6 +31,7 @@ int validar_identificador(const char *codigo) {
 
 // Função para gerar o arquivo PBM com o código de barras
 void gerar_codigo_barras(const char *codigo, int largura_area, int altura, int espacamento, const char *nome_arquivo) {
+    // Ajuste do tamanho total considerando os espaços e barras
     int largura_total = (3 + 28 + 5 + 28 + 3) * largura_area + 2 * espacamento;
     int altura_total = altura + 2 * espacamento;
 
@@ -42,6 +43,11 @@ void gerar_codigo_barras(const char *codigo, int largura_area, int altura, int e
 
     fprintf(arquivo, "P1\n%d %d\n", largura_total, altura_total);
 
+    // Padrões de codificação EAN-8 para os lados esquerdo (L) e direito (R)
+    const char *l_code[] = {"0001101", "0011001", "0010011", "0111101", "0100011", "0110001", "0101111", "0111011", "0110111", "0001011"};
+    const char *r_code[] = {"1110010", "1100110", "1101100", "1000010", "1011100", "1001110", "1010000", "1000100", "1001000", "1110100"};
+
+    // Gerar as linhas do código de barras
     for (int y = 0; y < altura_total; y++) {
         for (int x = 0; x < largura_total; x++) {
             if (y < espacamento || y >= altura_total - espacamento ||
@@ -51,22 +57,29 @@ void gerar_codigo_barras(const char *codigo, int largura_area, int altura, int e
                 int posicao = (x - espacamento) / largura_area;
                 int bit = 0;
 
+                // Código de barras começa com o padrão de start (3 barras)
                 if (posicao < 3) {
                     bit = (posicao == 0 || posicao == 2);
-                } else if (posicao >= 3 && posicao < 31) {
+                }
+                // Lado esquerdo do código (L)
+                else if (posicao >= 3 && posicao < 31) {
                     int indice = (posicao - 3) / 7;
                     int deslocamento = (posicao - 3) % 7;
-                    const char *l_code[] = {"0001101", "0011001", "0010011", "0111101", "0100011", "0110001", "0101111", "0111011", "0110111", "0001011"};
                     bit = l_code[codigo[indice] - '0'][deslocamento] - '0';
-                } else if (posicao >= 34 && posicao < 62) {
+                }
+                // Meio do código de barras
+                else if (posicao >= 31 && posicao < 34) {
+                    bit = (posicao % 2 == 0); // Espaços do meio
+                }
+                // Lado direito do código (R)
+                else if (posicao >= 34 && posicao < 62) {
                     int indice = (posicao - 34) / 7;
                     int deslocamento = (posicao - 34) % 7;
-                    const char *r_code[] = {"1110010", "1100110", "1101100", "1000010", "1011100", "1001110", "1010000", "1000100", "1001000", "1110100"};
                     bit = r_code[codigo[indice + 4] - '0'][deslocamento] - '0';
-                } else if (posicao >= 31 && posicao < 34) {
-                    bit = (posicao % 2 == 0);
-                } else if (posicao >= 62) {
-                    bit = (posicao % 2 == 0);
+                }
+                // Final do código de barras
+                else if (posicao >= 62) {
+                    bit = (posicao % 2 == 0); // Final com 3 barras
                 }
 
                 fprintf(arquivo, "%d ", bit);
