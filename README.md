@@ -1,0 +1,1 @@
+# ITP_2024.2-Codigo_de_Barra_EAN-8
