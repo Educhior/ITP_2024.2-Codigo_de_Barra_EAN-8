@@ -7,213 +7,166 @@
 #define ALTURA_DEFAULT 50
 #define ESPACAMENTO_DEFAULT 4
 
-// Funções auxiliares para manipulação de PBM
-int ler_cabecalho_pbm(FILE *arquivo, int *largura, int *altura) {
-    char buffer[256]; // Buffer maior para lidar com comentários ou linhas longas
-
-    // Verificar a assinatura "P1"
-    if (!fgets(buffer, sizeof(buffer), arquivo) || strncmp(buffer, "P1", 2) != 0) {
-        fprintf(stderr, "Erro: Assinatura do arquivo PBM invalida ou ausente.\n");
-        return 0;
+// Função para calcular o dígito verificador
+int calcular_digito_verificador(const char *codigo) {
+    int soma = 0;
+    for (int i = 0; i < 7; i++) {
+        int digito = codigo[i] - '0';
+        soma += (i % 2 == 0) ? (3 * digito) : digito;
     }
-
-    // Ignorar comentários e espaços em branco
-    do {
-        if (!fgets(buffer, sizeof(buffer), arquivo)) {
-            fprintf(stderr, "Erro: Fim inesperado do arquivo ao ler dimensoes.\n");
-            return 0;
-        }
-    } while (buffer[0] == '#' || isspace(buffer[0]));
-
-    // Ler largura e altura
-    if (sscanf(buffer, "%d %d", largura, altura) != 2) {
-        fprintf(stderr, "Erro: Dimensoes do arquivo PBM invalidas.\n");
-        return 0;
-    }
-
-    // Validar dimensões
-    if (*largura <= 0 || *altura <= 0) {
-        fprintf(stderr, "Erro: Dimensoes do arquivo PBM devem ser maiores que zero.\n");
-        return 0;
-    }
-
-    return 1; // Cabeçalho válido
+    int proximo_multiplo_10 = (soma + 9) / 10 * 10;
+    return proximo_multiplo_10 - soma;
 }
 
+// Função para validar o identificador
+int validar_identificador(const char *codigo) {
+    if (strlen(codigo) != 8) return 0; // Deve ter exatamente 8 dígitos
+    for (int i = 0; i < 8; i++) {
+        if (!isdigit(codigo[i])) return 0; // Deve conter apenas números
+    }
+    int digito_calculado = calcular_digito_verificador(codigo);
+    int digito_informado = codigo[7] - '0';
+    return digito_calculado == digito_informado;
+}
 
-// Função para extrair o identificador do código de barras
-void extrair_codigo_barras(const char *nome_arquivo) {
-    FILE *arquivo = fopen(nome_arquivo, "r");
+// Função para gerar o arquivo PBM com o código de barras
+void gerar_codigo_barras(const char *codigo, int largura_area, int altura, int espacamento, const char *nome_arquivo) {
+    // Ajuste do tamanho total considerando os espaços e barras
+    int largura_total = (3 + 28 + 5 + 28 + 3) * largura_area + 2 * espacamento;
+    int altura_total = altura + 2 * espacamento;
+
+    FILE *arquivo = fopen(nome_arquivo, "w");
     if (!arquivo) {
-        fprintf(stderr, "Erro: O arquivo '%s' não foi encontrado.\n", nome_arquivo);
+        perror("Erro ao criar o arquivo");
         exit(EXIT_FAILURE);
     }
 
-    int largura, altura;
-    if (!ler_cabecalho_pbm(arquivo, &largura, &altura)) {
-        fclose(arquivo);
-        fprintf(stderr, "Erro: O arquivo '%s' não é um arquivo PBM válido.\n", nome_arquivo);
-        exit(EXIT_FAILURE);
-    }
+    fprintf(arquivo, "P1\n%d %d\n", largura_total, altura_total);
 
-    // Alocar memória para a matriz de imagem
-    int **imagem = (int **)malloc(altura * sizeof(int *));
-    if (!imagem) {
-        fprintf(stderr, "Erro: Falha ao alocar memória para a imagem.\n");
-        fclose(arquivo);
-        exit(EXIT_FAILURE);
-    }
+    // Padrões de codificação EAN-8 para os lados esquerdo (L) e direito (R)
+    const char *l_code[] = {"0001101", "0011001", "0010011", "0111101", "0100011", "0110001", "0101111", "0111011", "0110111", "0001011"};
+    const char *r_code[] = {"1110010", "1100110", "1101100", "1000010", "1011100", "1001110", "1010000", "1000100", "1001000", "1110100"};
 
-    for (int i = 0; i < altura; i++) {
-        imagem[i] = (int *)malloc(largura * sizeof(int));
-        if (!imagem[i]) {
-            fprintf(stderr, "Erro: Falha ao alocar memória para a linha %d.\n", i);
-            for (int j = 0; j < i; j++) free(imagem[j]);
-            free(imagem);
-            fclose(arquivo);
-            exit(EXIT_FAILURE);
-        }
-    }
+    // Gerar as linhas do código de barras
+    for (int y = 0; y < altura_total; y++) {
+        for (int x = 0; x < largura_total; x++) {
+            if (y < espacamento || y >= altura_total - espacamento ||
+                x < espacamento || x >= largura_total - espacamento) {
+                fprintf(arquivo, "0 ");
+            } else {
+                int posicao = (x - espacamento) / largura_area;
+                int bit = 0;
 
-    // Ler os dados do arquivo PBM
-    for (int i = 0; i < altura; i++) {
-        for (int j = 0; j < largura; j++) {
-            if (fscanf(arquivo, "%d", &imagem[i][j]) != 1) {
-                fprintf(stderr, "Erro: Dados do arquivo PBM estão corrompidos ou incompletos.\n");
-                for (int k = 0; k < altura; k++) free(imagem[k]);
-                free(imagem);
-                fclose(arquivo);
-                exit(EXIT_FAILURE);
+                // Código de barras começa com o padrão de start (3 barras)
+                if (posicao < 3) {
+                    bit = (posicao == 0 || posicao == 2);
+                }
+                // Lado esquerdo do código (L)
+                else if (posicao >= 3 && posicao < 31) {
+                    int indice = (posicao - 3) / 7;
+                    int deslocamento = (posicao - 3) % 7;
+                    bit = l_code[codigo[indice] - '0'][deslocamento] - '0';
+                }
+                // Meio do código de barras
+                else if (posicao >= 31 && posicao < 34) {
+                    bit = (posicao % 2 == 0); // Espaços do meio
+                }
+                // Lado direito do código (R)
+                else if (posicao >= 34 && posicao < 62) {
+                    int indice = (posicao - 34) / 7;
+                    int deslocamento = (posicao - 34) % 7;
+                    bit = r_code[codigo[indice + 4] - '0'][deslocamento] - '0';
+                }
+                // Final do código de barras
+                else if (posicao >= 62) {
+                    bit = (posicao % 2 == 0); // Final com 3 barras
+                }
+
+                fprintf(arquivo, "%d ", bit);
             }
         }
+        fprintf(arquivo, "\n");
     }
+
     fclose(arquivo);
-
-    // Processar a imagem para encontrar o código de barras
-    int largura_barras = LARGURA_DEFAULT; // Largura esperada de cada barra
-    int inicio = ESPACAMENTO_DEFAULT;    // Ignorar espaçamento inicial
-
-    char identificador[9] = {0};
-    int indice = 0;
-
-    for (int x = inicio; x < largura - inicio && indice < 8; x += largura_barras * 7) {
-        int digito = 0;
-        for (int i = 0; i < 7; i++) {
-            if (x + i >= largura) { // Verificação de limite
-                fprintf(stderr, "Erro: Código de barras malformado na imagem.\n");
-                for (int i = 0; i < altura; i++) free(imagem[i]);
-                free(imagem);
-                exit(EXIT_FAILURE);
-            }
-            digito = digito << 1 | imagem[altura / 2][x + i];
-        }
-
-        // Debug: Mostrar os valores de cada "barra"
-        printf("Valor do digito: %d (Binário: ", digito);
-        for (int i = 0; i < 7; i++) {
-            printf("%d", (imagem[altura / 2][x + i]));
-        }
-        printf(")\n");
-
-        // Verifique se o dígito está dentro do intervalo válido
-        if (digito < 0 || digito > 9) {
-            fprintf(stderr, "Erro: Digito inválido detectado: %d\n", digito);
-            for (int i = 0; i < altura; i++) free(imagem[i]);
-            free(imagem);
-            exit(EXIT_FAILURE);
-        }
-
-        // Decodificar o dígito com base nos padrões de barras
-        const char *l_code[] = {"0001101", "0011001", "0010011", "0111101", "0100011", "0110001", "0101111", "0111011", "0110111", "0001011"};
-        const char *r_code[] = {"1110010", "1100110", "1101100", "1000010", "1011100", "1001110", "1010000", "1000100", "1001000", "1110100"};
-
-        char digito_str[8];
-        sprintf(digito_str, "%07d", digito);
-
-        int encontrado = 0;
-        for (int d = 0; d < 10; d++) {
-            if (strcmp(l_code[d], digito_str) == 0 || strcmp(r_code[d], digito_str) == 0) {
-                identificador[indice++] = '0' + d;
-                encontrado = 1;
-                break;
-            }
-        }
-
-        if (!encontrado) {
-            fprintf(stderr, "Erro: Código de barras inválido na imagem.\n");
-            for (int i = 0; i < altura; i++) free(imagem[i]);
-            free(imagem);
-            exit(EXIT_FAILURE);
-        }
-    }
-
-    if (indice != 8) {
-        fprintf(stderr, "Erro: Código de barras não encontrado na imagem.\n");
-        for (int i = 0; i < altura; i++) free(imagem[i]);
-        free(imagem);
-        exit(EXIT_FAILURE);
-    }
-
-    // Exibir o identificador encontrado
-    printf("Identificador encontrado: %s\n", identificador);
-
-    // Liberar memória da matriz de imagem
-    for (int i = 0; i < altura; i++) free(imagem[i]);
-    free(imagem);
+    printf("Arquivo PBM gerado: %s\n", nome_arquivo);
 }
-
-
-// Exibição de menu e funcionalidade de geração já implementada
 
 void exibir_menu() {
     printf("\n===================================\n");
-    printf("   Gerador e Extrator de Codigo de Barras EAN-8\n");
+    printf("   Gerador de Codigo de Barras EAN-8   \n");
     printf("===================================\n");
     printf("1. Gerar codigo de barras\n");
-    printf("2. Extrair codigo de barras de imagem PBM\n");
-    printf("3. Sair\n");
+    printf("2. Sair\n");
     printf("Escolha uma opcao: ");
 }
 
-int main(int argc, char *argv[]) {
-    if (argc == 2) {
-        // Extrair identificador diretamente do arquivo PBM
-        extrair_codigo_barras(argv[1]);
-        return 0;
-    }
+int obter_entrada_inteira(const char *mensagem, int valor_default) {
+    int valor;
+    char buffer[100];
 
+    printf("%s", mensagem);
+    if (fgets(buffer, sizeof(buffer), stdin) != NULL) {
+        if (buffer[0] == '\n') {
+            return valor_default;
+        }
+        if (sscanf(buffer, "%d", &valor) == 1) {
+            return valor;
+        }
+    }
+    return valor_default;
+}
+
+// Função para limpar o buffer e esperar o "Enter" após uma entrada
+void limpar_buffer() {
+    while (getchar() != '\n'); // Limpar o buffer
+}
+
+int main() {
     int opcao;
     do {
         exibir_menu();
-
-        if (scanf("%d", &opcao) != 1) {
-            printf("Opção inválida! Tente novamente.\n");
-            while (getchar() != '\n');
-            continue;
-        }
-
-        while (getchar() != '\n');
+        scanf("%d", &opcao);
+        limpar_buffer(); // Limpar o buffer após a opção
 
         switch (opcao) {
-            case 1:
-                // Função de geração de código de barras aqui
-                printf("Funcionalidade de geração de código de barras.\n");
-                break;
-            case 2: {
-                char arquivo[100];
-                printf("Digite o nome do arquivo PBM: ");
-                fgets(arquivo, sizeof(arquivo), stdin);
-                arquivo[strcspn(arquivo, "\n")] = '\0'; // Remover newline
-                extrair_codigo_barras(arquivo);
+            case 1: {
+                char identificador[9];
+                int espacamento, largura, altura;
+                char arquivo_saida[100];
+
+                printf("Digite o identificador (8 digitos): ");
+                fgets(identificador, sizeof(identificador), stdin);
+                identificador[strcspn(identificador, "\n")] = '\0'; // Remover o '\n' do buffer
+
+                // Verifica se a entrada foi vazia ou inválida
+                if (strlen(identificador) != 8 || !validar_identificador(identificador)) {
+                    printf("Identificador invalido! Certifique-se de que possui 8 digitos e que o digito verificador esta correto.\n");
+                    break;
+                }
+
+                espacamento = obter_entrada_inteira("Digite o espacamento lateral (pressione Enter para usar o valor padrao 4): ", ESPACAMENTO_DEFAULT);
+                largura = obter_entrada_inteira("Digite a largura de cada area (pressione Enter para usar o valor padrao 3): ", LARGURA_DEFAULT);
+                altura = obter_entrada_inteira("Digite a altura do codigo (pressione Enter para usar o valor padrao 50): ", ALTURA_DEFAULT);
+
+                printf("Digite o nome do arquivo de saida (pressione Enter para usar o valor padrao codigo_barras.pbm): ");
+                fgets(arquivo_saida, sizeof(arquivo_saida), stdin);
+                arquivo_saida[strcspn(arquivo_saida, "\n")] = '\0';
+
+                if (strlen(arquivo_saida) == 0) {
+                    strcpy(arquivo_saida, "codigo_barras.pbm");
+                }
+
+                gerar_codigo_barras(identificador, largura, altura, espacamento, arquivo_saida);
                 break;
             }
-            case 3:
+            case 2:
                 printf("Saindo do programa...\n");
                 break;
             default:
-                printf("Opção inválida! Tente novamente.\n");
+                printf("Opcao invalida! Tente novamente.\n");
         }
-    } while (opcao != 3);
+    } while (opcao != 2);
 
     return 0;
 }
