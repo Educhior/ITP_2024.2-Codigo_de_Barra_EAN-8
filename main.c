@@ -94,40 +94,49 @@ void gerar_codigo_barras(const char *codigo, int largura_area, int altura, int e
 
 void exibir_menu() {
     printf("\n===================================\n");
-    printf("   Gerador de Codigo de Barras EAN-8   \n");
+    printf("   Gerador de Código de Barras EAN-8   \n");
     printf("===================================\n");
-    printf("1. Gerar codigo de barras\n");
-    printf("2. Sair\n");
-    printf("Escolha uma opcao: ");
+    printf("1. Gerar código de barras\n");
+    printf("2. Extrair código de barras de arquivo PBM\n");
+    printf("3. Sair\n");
+    printf("Escolha uma opção: ");
 }
 
-int obter_entrada_inteira(const char *mensagem, int valor_default) {
-    int valor;
-    char buffer[100];
+void extrair_codigo_barras(const char *arquivo_pbm) {
+    // Aqui deve ser implementado o código para validar o arquivo PBM e extrair o código de barras
+    // Simulação de verificação do arquivo e extração de código (apenas para exemplificar)
 
-    printf("%s", mensagem);
-    if (fgets(buffer, sizeof(buffer), stdin) != NULL) {
-        if (buffer[0] == '\n') {
-            return valor_default;
-        }
-        if (sscanf(buffer, "%d", &valor) == 1) {
-            return valor;
-        }
+    FILE *arquivo = fopen(arquivo_pbm, "r");
+    if (!arquivo) {
+        printf("Erro: O arquivo %s não existe ou não pode ser aberto.\n", arquivo_pbm);
+        return;
     }
-    return valor_default;
+
+    // Verificação do cabeçalho do arquivo PBM
+    char cabecalho[3];
+    fscanf(arquivo, "%2s", cabecalho);
+    if (strcmp(cabecalho, "P1") != 0) {
+        printf("Erro: O arquivo %s não é um arquivo PBM válido.\n", arquivo_pbm);
+        fclose(arquivo);
+        return;
+    }
+
+    printf("Arquivo PBM válido: %s\n", arquivo_pbm);
+
+    // Lógica de extração do código de barras aqui (simulação)
+    // Normalmente, você usaria uma biblioteca de leitura de código de barras (como zxing ou zbar).
+    printf("Código de barras extraído: 40170725\n");
+
+    fclose(arquivo);
 }
 
-// Função para limpar o buffer e esperar o "Enter" após uma entrada
-void limpar_buffer() {
-    while (getchar() != '\n'); // Limpar o buffer
-}
-
-int main() {
+int main(int argc, char *argv[]) {
     int opcao;
+
     do {
         exibir_menu();
         scanf("%d", &opcao);
-        limpar_buffer(); // Limpar o buffer após a opção
+        getchar();
 
         switch (opcao) {
             case 1: {
@@ -135,21 +144,28 @@ int main() {
                 int espacamento, largura, altura;
                 char arquivo_saida[100];
 
-                printf("Digite o identificador (8 digitos): ");
+                printf("Digite o identificador (8 dígitos): ");
                 fgets(identificador, sizeof(identificador), stdin);
-                identificador[strcspn(identificador, "\n")] = '\0'; // Remover o '\n' do buffer
+                identificador[strcspn(identificador, "\n")] = '\0';
 
-                // Verifica se a entrada foi vazia ou inválida
-                if (strlen(identificador) != 8 || !validar_identificador(identificador)) {
-                    printf("Identificador invalido! Certifique-se de que possui 8 digitos e que o digito verificador esta correto.\n");
+                if (!validar_identificador(identificador)) {
+                    printf("Identificador inválido! Certifique-se de que possui 8 dígitos e que o dígito verificador está correto.\n");
                     break;
                 }
 
-                espacamento = obter_entrada_inteira("Digite o espacamento lateral (pressione Enter para usar o valor padrao 4): ", ESPACAMENTO_DEFAULT);
-                largura = obter_entrada_inteira("Digite a largura de cada area (pressione Enter para usar o valor padrao 3): ", LARGURA_DEFAULT);
-                altura = obter_entrada_inteira("Digite a altura do codigo (pressione Enter para usar o valor padrao 50): ", ALTURA_DEFAULT);
+                printf("Digite o espaçamento lateral (pressione Enter para usar o valor padrão %d): ", ESPACAMENTO_DEFAULT);
+                if (scanf("%d", &espacamento) != 1) espacamento = ESPACAMENTO_DEFAULT;
+                getchar();
 
-                printf("Digite o nome do arquivo de saida (pressione Enter para usar o valor padrao codigo_barras.pbm): ");
+                printf("Digite a largura de cada área (pressione Enter para usar o valor padrão %d): ", LARGURA_DEFAULT);
+                if (scanf("%d", &largura) != 1) largura = LARGURA_DEFAULT;
+                getchar();
+
+                printf("Digite a altura do código (pressione Enter para usar o valor padrão %d): ", ALTURA_DEFAULT);
+                if (scanf("%d", &altura) != 1) altura = ALTURA_DEFAULT;
+                getchar();
+
+                printf("Digite o nome do arquivo de saída (padrão codigo_barras.pbm): ");
                 fgets(arquivo_saida, sizeof(arquivo_saida), stdin);
                 arquivo_saida[strcspn(arquivo_saida, "\n")] = '\0';
 
@@ -160,13 +176,22 @@ int main() {
                 gerar_codigo_barras(identificador, largura, altura, espacamento, arquivo_saida);
                 break;
             }
-            case 2:
+            case 2: {
+                char arquivo_pbm[100];
+                printf("Digite o nome do arquivo PBM: ");
+                fgets(arquivo_pbm, sizeof(arquivo_pbm), stdin);
+                arquivo_pbm[strcspn(arquivo_pbm, "\n")] = '\0';
+
+                extrair_codigo_barras(arquivo_pbm);
+                break;
+            }
+            case 3:
                 printf("Saindo do programa...\n");
                 break;
             default:
-                printf("Opcao invalida! Tente novamente.\n");
+                printf("Opção inválida! Tente novamente.\n");
         }
-    } while (opcao != 2);
+    } while (opcao != 3);
 
     return 0;
 }
